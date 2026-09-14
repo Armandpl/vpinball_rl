@@ -34,7 +34,8 @@ public:
    void OnFinishFrame();
 
    void StartPhysics();
-   void UpdatePhysics(uint64_t targetTimeUs);
+   void UpdatePhysics(uint64_t targetTimeUs, bool exact = false);
+   void StepExact() { UpdatePhysics(m_nextPhysicsFrameTime, true); }
 
    bool IsBallCollisionHandlingSwapped() const { return m_swap_ball_collision_handling; }
    bool RecordContact(const CollisionEvent& newColl);

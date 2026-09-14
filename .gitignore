@@ -31,3 +31,8 @@ VisualPinball.sln
 /.build
 
 /.cache/
+
+# Python RL client
+__pycache__/
+*.py[cod]
+.venv/

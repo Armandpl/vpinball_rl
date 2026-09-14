@@ -4,6 +4,11 @@
 
 This project was started by Randy Davis, open sourced in 2010 and continued by the Visual Pinball development team. This is the official repository.
 
+## Reinforcement learning fork
+
+See [the RL client guide](rl/README.md) for synchronous headless stepping, RGB
+observations, the saved five-target table, and a Python playable demo.
+
 ## Features
 
 - Simulates pinball table physics and renders the table with DirectX, OpenGL or [bgfx](https://bkaradzic.github.io/bgfx/overview.html)
