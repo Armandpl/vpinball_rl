@@ -14,6 +14,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 # Native VPU coordinates; five rounded targets in a fan.
 PLAYFIELD_RGB = (20, 65, 120)  # Dark blue; silver ball and neutral targets stay unchanged.
+FLIPPER_RETURN_STRENGTH = 0.025  # Half the stock 0.05; slower release, unchanged activation.
 TARGETS = [(140, 1050, -40), (290, 700, -15), (437, 460, 0),
            (584, 700, 15), (734, 1050, 40)]
 # VPX wall polygons use negative signed area in native XY (matching stock walls).
@@ -112,6 +113,13 @@ def build():
     if table_mac(base) != base['GameStg/MAC']:
         raise ValueError('Source integrity calculation differs from VPX; refusing to write')
     streams = base.copy()
+    flippers = 0
+    for path, data in base.items():
+        if path.startswith('GameStg/GameItem') and struct.unpack_from('<I', data)[0] == 1:
+            streams[path] = patch(data, {b'FRTN': floats(FLIPPER_RETURN_STRENGTH)})
+            flippers += 1
+    if flippers != 2:
+        raise ValueError('Expected exactly two flippers')
     base_items = named_items(base)
     example = named_items(load(ROOT/'src/assets/exampleTable.vpx'))
     count = struct.unpack('<i', dict(records(base['GameStg/GameData']))[b'SEDT'])[0]
