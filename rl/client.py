@@ -20,7 +20,6 @@ ROOT = Path(__file__).resolve().parents[1]
 class Action:
     left: bool = False
     right: bool = False
-    start: bool = False
 
 
 @dataclass(frozen=True)
@@ -38,7 +37,7 @@ class Observation:
 class Pinball:
     """One engine process. step holds the action for physics_ticks fixed 1ms ticks.
 
-    Start is edge-triggered and launches after a fixed 1000ms simulated pull.
+    The table launches automatically; actions control only the two flippers.
     reset starts a new game in the same process; it is not a full physics snapshot.
     A private Xvfb is used by default; Python alone displays returned frames.
     Instances must not be shared between threads.
@@ -156,7 +155,7 @@ ForceMotionBlurOff = 1
         self._stream = parent.makefile("rb")
         hello = self._header()
         self.engine_info = hello
-        if hello.get("protocol") != 2 or hello.get("physics_tick_us") != 1000:
+        if hello.get("protocol") != 3 or hello.get("physics_tick_us") != 1000:
             raise RuntimeError(f"Unsupported engine protocol: {hello}")
 
     def _diagnostic(self):
@@ -179,10 +178,10 @@ ForceMotionBlurOff = 1
             raise RuntimeError("Client is closed")
         count = self.physics_ticks if physics_ticks is None else physics_ticks
         self._validate_ticks(count)
-        bits = (action.left, action.right, action.start)
+        bits = (action.left, action.right)
         if any(type(bit) is not bool for bit in bits):
             raise ValueError("Action fields must be bools")
-        self._sock.sendall(f"step {int(bits[0])} {int(bits[1])} {int(bits[2])} {count}\n".encode())
+        self._sock.sendall(f"step {int(bits[0])} {int(bits[1])} {count}\n".encode())
         return self._observation()
 
     def _observation(self):

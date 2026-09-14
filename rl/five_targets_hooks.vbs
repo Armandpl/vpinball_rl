@@ -1,10 +1,10 @@
 ' license:GPLv3+
 ' Additional rules for the saved stripped-table mod. Original controls, nudging,
 ' slingshots, sound and animations above are deliberately preserved.
-Dim RLScore, RLStarted, RLGameOver, RLActiveTarget, RLLeft, RLRight, RLStart
+Dim RLScore, RLStarted, RLGameOver, RLActiveTarget, RLLeft, RLRight
 Dim RLLaunchTicks, RLLastHit(5), RLIndicators, RLIndex
 RLScore = 0: RLStarted = False: RLGameOver = False: RLActiveTarget = 1
-RLLeft = 0: RLRight = 0: RLStart = 0: RLLaunchTicks = 0
+RLLeft = 0: RLRight = 0: RLLaunchTicks = 1001
 For RLIndex = 1 To 5: RLLastHit(RLIndex) = -1000: Next
 RLIndicators = Array(RLIndicator1, RLIndicator2, RLIndicator3, RLIndicator4, RLIndicator5)
 RLUpdateLights
@@ -37,7 +37,7 @@ Sub RLTarget3_Hit: RLHitTarget 3: End Sub
 Sub RLTarget4_Hit: RLHitTarget 4: End Sub
 Sub RLTarget5_Hit: RLHitTarget 5: End Sub
 
-Sub RLApplyAction(l, r, s)
+Sub RLApplyAction(l, r)
     If RLGameOver Then Exit Sub
     If l <> RLLeft Then
         If l = 1 Then Table1_KeyDown LeftFlipperKey Else Table1_KeyUp LeftFlipperKey
@@ -45,11 +45,7 @@ Sub RLApplyAction(l, r, s)
     If r <> RLRight Then
         If r = 1 Then Table1_KeyDown RightFlipperKey Else Table1_KeyUp RightFlipperKey
     End If
-    If s = 1 And RLStart = 0 And RLLaunchTicks = 0 Then
-        Table1_KeyDown PlungerKey
-        RLLaunchTicks = 1000
-    End If
-    RLLeft = l: RLRight = r: RLStart = s
+    RLLeft = l: RLRight = r
 End Sub
 
 Sub RLReset
@@ -57,7 +53,7 @@ Sub RLReset
     ' reset only this simple game's episode state and serve one new ball.
     Dim i
     RLScore = 0: RLStarted = False: RLGameOver = False: RLActiveTarget = 1
-    RLLeft = 0: RLRight = 0: RLStart = 0: RLLaunchTicks = 0
+    RLLeft = 0: RLRight = 0: RLLaunchTicks = 1001
     For i = 1 To 5: RLLastHit(i) = GameTime - 1000: Next
     Table1_KeyUp LeftFlipperKey
     Table1_KeyUp RightFlipperKey
@@ -83,6 +79,8 @@ Sub RLReset
 End Sub
 
 Sub RLTick
+    ' Pull automatically on the first physics tick, then release after one second.
+    If RLLaunchTicks = 1001 Then Table1_KeyDown PlungerKey
     If RLLaunchTicks > 0 Then
         RLLaunchTicks = RLLaunchTicks - 1
         If RLLaunchTicks = 0 Then Table1_KeyUp PlungerKey

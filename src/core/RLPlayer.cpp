@@ -40,7 +40,7 @@ void Player::RLGameLoop()
          SetCloseState(CS_CLOSE_APP); return;
       }
    DISPPARAMS noArgs = { nullptr, nullptr, 0, 0 };
-   bridge.Send(std::format("{{\"protocol\":2,\"physics_tick_us\":{},\"renderer\":\"{}\",\"gpu_vendor_id\":{},\"gpu_device_id\":{}}}\n",
+   bridge.Send(std::format("{{\"protocol\":3,\"physics_tick_us\":{},\"renderer\":\"{}\",\"gpu_vendor_id\":{},\"gpu_device_id\":{}}}\n",
       PHYSICS_STEPTIME, bgfx::getRendererName(bgfx::getRendererType()), bgfx::getCaps()->vendorId, bgfx::getCaps()->deviceId));
    string line;
    while (bridge.Receive(line))
@@ -64,13 +64,13 @@ void Player::RLGameLoop()
       {
          std::istringstream command(line);
          string op, extra;
-         int left, right, start;
-         if (!(command >> op >> left >> right >> start >> count) || op != "step"
+         int left, right;
+         if (!(command >> op >> left >> right >> count) || op != "step"
             || (command >> extra) || left < 0 || left > 1 || right < 0 || right > 1
-            || start < 0 || start > 1 || count < 0 || count > 10000)
-         { fail("Expected step left right start ticks (bits, 0..10000 ticks), reset or close"); continue; }
-         CComVariant actionArgs[] = { CComVariant(start), CComVariant(right), CComVariant(left) };
-         DISPPARAMS actionParams = { actionArgs, nullptr, 3, 0 }; // COM arguments are reversed.
+            || count < 0 || count > 10000)
+         { fail("Expected step left right ticks (bits, 0..10000 ticks), reset or close"); continue; }
+         CComVariant actionArgs[] = { CComVariant(right), CComVariant(left) };
+         DISPPARAMS actionParams = { actionArgs, nullptr, 2, 0 }; // COM arguments are reversed.
          if (FAILED(script->Invoke(ids[1], IID_NULL, 0, DISPATCH_METHOD, &actionParams, nullptr, nullptr, nullptr)))
          { fail("RLApplyAction failed"); break; }
       }
