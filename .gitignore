@@ -40,3 +40,4 @@ __pycache__/
 # Generated RL table assets
 /rl/assets/rl_table.vpx
 /rl/assets/embedded_script.txt
+/rl/assets/cache/
