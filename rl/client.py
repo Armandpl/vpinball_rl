@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import json
 import os
 from pathlib import Path
@@ -39,32 +37,26 @@ class Pinball:
 
     The table launches automatically; actions control only the two flippers.
     reset starts a new game in the same process; it is not a full physics snapshot.
-    A private Xvfb is used by default; Python alone displays returned frames.
+    The engine uses private Xvfb; Python alone displays returned frames.
     Instances must not be shared between threads.
     """
 
-    def __init__(self, *, engine=ROOT / "build/VPinballX_BGFX",
-                 table=ROOT / "rl/assets/rl_table.vpx",
-                 width=640, height=480,
-                 physics_ticks=16, backend="Vulkan", headless=True, timeout=60.0,
-                 camera=None):
-        self.engine, self.table = Path(engine).resolve(), Path(table).resolve()
-        for path in (self.engine, self.table):
+    def __init__(self, *, width=640, height=480, physics_ticks=16, camera=None,
+                 engine=ROOT / "build/VPinballX_BGFX", timeout=60.0):
+        self.engine = Path(engine).resolve()
+        table = ROOT / "rl/assets/rl_table.vpx"
+        for path in (self.engine, table):
             if not path.is_file():
                 raise FileNotFoundError(path)
         if not (type(width) is int and type(height) is int and 64 <= width <= 4096 and 64 <= height <= 4096):
             raise ValueError("width and height must be 64..4096")
         self._validate_ticks(physics_ticks)
-        if backend not in ("Vulkan", "OpenGL"):
-            raise ValueError("backend must be Vulkan or OpenGL")
-        if timeout <= 0:
+        if not 0 < timeout < float("inf"):
             raise ValueError("timeout must be positive")
-        self.camera = camera
-        if camera is not None:
-            camera.matrices(width, height)  # Validate before starting any processes.
+        self._camera = camera.serialize(width, height) if camera is not None else None
+        self._camera_anchor = camera.anchor if camera is not None else None
         self.width, self.height = width, height
-        self.physics_ticks, self.backend = physics_ticks, backend
-        self.headless, self.timeout = headless, timeout
+        self.physics_ticks, self.timeout = physics_ticks, timeout
         self._proc = self._xvfb = self._sock = self._stream = self._log = self._tmp = None
         try:
             self._launch()
@@ -90,56 +82,50 @@ class Pinball:
         env["SDL_AUDIODRIVER"] = "dummy"
         env.pop("VPX_RL_CAMERA", None)
         env.pop("VPX_RL_CAMERA_ANCHOR", None)
-        if self.camera is not None:
-            env["VPX_RL_CAMERA"] = self.camera.serialize(self.width, self.height)
-            env["VPX_RL_CAMERA_ANCHOR"] = self.camera.anchor
-        if self.headless:
-            read_fd, write_fd = os.pipe()
-            try:
-                self._xvfb = subprocess.Popen(
-                    ["Xvfb", "-noreset", "-displayfd", str(write_fd), "-screen", "0",
-                     f"{self.width}x{self.height}x24", "-nolisten", "tcp"],
-                    pass_fds=(write_fd,), stdout=self._log, stderr=self._log)
+        if self._camera is not None:
+            env["VPX_RL_CAMERA"] = self._camera
+            env["VPX_RL_CAMERA_ANCHOR"] = self._camera_anchor
+        read_fd, write_fd = os.pipe()
+        try:
+            self._xvfb = subprocess.Popen(
+                ["Xvfb", "-noreset", "-displayfd", str(write_fd), "-screen", "0",
+                 f"{self.width}x{self.height}x24", "-nolisten", "tcp"],
+                pass_fds=(write_fd,), stdout=self._log, stderr=self._log)
+            os.close(write_fd)
+            write_fd = None
+            # Xvfb may write the digits and newline separately; wait for both.
+            deadline = time.monotonic() + self.timeout
+            line = b""
+            while b"\n" not in line and len(line) < 64:
+                remaining = max(0, deadline - time.monotonic())
+                if not select.select([read_fd], [], [], remaining)[0]:
+                    raise TimeoutError("Xvfb startup timed out")
+                chunk = os.read(read_fd, 64)
+                if not chunk:
+                    break
+                line += chunk
+            display = line.decode().strip()
+            if not display.isdigit():
+                raise RuntimeError("Xvfb failed to allocate a display")
+            env["DISPLAY"] = ":" + display
+        finally:
+            os.close(read_fd)
+            if write_fd is not None:
                 os.close(write_fd)
-                write_fd = None
-                # Xvfb can write the digits and newline separately. Keep the pipe
-                # open until the entire line arrives, or its final write can fail.
-                deadline = time.monotonic() + self.timeout
-                line = b""
-                while b"\n" not in line and len(line) < 64:
-                    remaining = max(0, deadline - time.monotonic())
-                    if not select.select([read_fd], [], [], remaining)[0]:
-                        raise TimeoutError("Xvfb startup timed out")
-                    chunk = os.read(read_fd, 64)
-                    if not chunk:
-                        break
-                    line += chunk
-                display = line.decode().strip()
-                if not display.isdigit():
-                    raise RuntimeError("Xvfb failed to allocate a display")
-                env["DISPLAY"] = ":" + display
-            finally:
-                os.close(read_fd)
-                if write_fd is not None:
-                    os.close(write_fd)
-        # Byte-for-byte copy isolates settings/caches. No geometry or script patching:
-        # the offline-generated VPX already contains our layout and complete rules.
+        # Isolate table-adjacent settings and caches between instances.
         table = work / "table.vpx"
-        shutil.copyfile(self.table, table)
+        shutil.copyfile(ROOT / "rl/assets/rl_table.vpx", table)
         ini = work / "VPinballX.ini"
         ini.write_text(f"""[Player]
-GfxBackend = {self.backend}
+GfxBackend = Vulkan
 PlayfieldFullScreen = 0
 PlayfieldWidth = {self.width}
 PlayfieldHeight = {self.height}
-PlayfieldWndX = 0
-PlayfieldWndY = 0
 SyncMode = 0
 MaxFramerate = 10000
 MusicVolume = 0
 SoundVolume = 0
 ForceMotionBlurOff = 1
-[Standalone]
 """)
         parent, child = socket.socketpair()
         self._sock = parent
@@ -158,9 +144,6 @@ ForceMotionBlurOff = 1
         if hello.get("protocol") != 3 or hello.get("physics_tick_us") != 1000:
             raise RuntimeError(f"Unsupported engine protocol: {hello}")
 
-    def _diagnostic(self):
-        return self.log_path.read_text(errors="replace")[-8000:]
-
     def _header(self):
         try:
             line = self._stream.readline(65537)
@@ -171,7 +154,10 @@ ForceMotionBlurOff = 1
                 raise RuntimeError(header["error"])
             return header
         except (OSError, ValueError, RuntimeError) as exc:
-            raise RuntimeError(f"{exc}\nEngine log:\n{self._diagnostic()}") from exc
+            with self.log_path.open("rb") as log:
+                log.seek(max(0, self.log_path.stat().st_size - 8000))
+                tail = log.read().decode(errors="replace")
+            raise RuntimeError(f"{exc}\nEngine log:\n{tail}") from exc
 
     def step(self, action=Action(), *, physics_ticks=None):
         if self._sock is None:

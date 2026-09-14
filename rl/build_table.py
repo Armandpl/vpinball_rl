@@ -2,7 +2,7 @@
 # requires-python = ">=3.10"
 # dependencies = ["olefile>=0.47", "extract-msg>=0.55", "pycryptodome>=3.20"]
 # ///
-"""Offline authoring tool: uv run rl/build_table.py. Never run by the client."""
+"""Generate the five-target table: uv run rl/build_table.py."""
 from pathlib import Path
 import struct
 
@@ -12,8 +12,7 @@ from extract_msg.ole_writer import OleWriter
 
 ROOT = Path(__file__).resolve().parents[1]
 
-# Native VPU coordinates. Five wide stand-ups form a shallow fan across likely
-# launch, return and flipper-shot paths, rather than one small distant bank.
+# Native VPU coordinates; five rounded targets in a fan.
 PLAYFIELD_RGB = (20, 65, 120)  # Dark blue; silver ball and neutral targets stay unchanged.
 TARGETS = [(140, 1050, -40), (290, 700, -15), (437, 460, 0),
            (584, 700, 15), (734, 1050, 40)]
@@ -120,37 +119,24 @@ def build():
     for i, (x, y, angle) in enumerate(TARGETS, 1):
         target = patch(example['sw1'], {
             b'NAME': text(f'RLTarget{i}', True), b'VPOS': floats(x, y, 0, 0),
-            # Round stand-up: keep a broad face, but use stock-height geometry
-            # and a shallow base rather than the tall rectangular target's ledges.
+            # Broad round face, shallow base, stock height.
             b'VSIZ': floats(140, 15, 32, 0), b'ROTZ': floats(angle), b'TRTY': integer(3),
             b'TMON': integer(0), b'ISDR': integer(0), b'THRS': floats(.1),
             b'RSCT': floats(0), b'OVPH': integer(1), b'IMAG': text(''),
             b'MATR': dict(records(base_items['Wall5top'], 4))[b'TOMA'],
         })
         added.append(target)
-        # Use stock GI light data/materials. Shape points are replaced by an
-        # explicit small insert in front of each target.
-        light = base_items['gi1']
-        parts = list(records(light, 4))
-        # Light polygons begin at DPNT; retain just ordinary light fields.
-        cut = next(j for j, (tag, _) in enumerate(parts) if tag == b'DPNT')
-        light = light[:4]+encode(parts[:cut]+[(b'ENDB', b'')])
-        light = patch(light, {b'NAME': text(f'RLIndicator{i}', True), b'VCEN': floats(x, y+70),
+        # Stock GI material with a rectangular insert in front of the target.
+        light = with_polygon(base_items['gi1'],
+                             [(x-35,y+45),(x-35,y+95),(x+35,y+95),(x+35,y+45)], {b'NAME': text(f'RLIndicator{i}', True), b'VCEN': floats(x, y+70),
                              b'RADI': floats(48), b'STAT': integer(0),
                              b'BULT': integer(0), b'SHBM': integer(0), b'HGHT': floats(0),
                              b'BWTH': floats(2), b'FASP': floats(100), b'FASD': floats(100),
                              b'COLR': integer(0x20FF40), b'COL2': integer(0x80FF80)})
-        # Reuse VPX drag point records from a rectangle wall, retaining its format.
-        light = light[:-8] + polygon([(x-35,y+45),(x-35,y+95),(x+35,y+95),(x+35,y+45)]) + encode([(b'ENDB', b'')])
         added.append(light)
     for name, points in [('RLLeftReturn', LEFT_RETURN), ('RLRightReturn', RIGHT_RETURN)]:
-        wall = base_items['Wall5top']
-        parts = list(records(wall, 4))
-        cut = next(i for i, (tag, _) in enumerate(parts) if tag in (b'PNTS', b'DPNT'))
-        wall = wall[:4]+encode(parts[:cut]+[(b'ENDB', b'')])
-        wall = patch(wall, {b'NAME': text(name, True), b'HTBT': floats(0), b'HTTP': floats(120),
+        wall = with_polygon(base_items['Wall5top'], points, {b'NAME': text(name, True), b'HTBT': floats(0), b'HTTP': floats(120),
                             b'HTEV': integer(0), b'CLDW': integer(1)})
-        wall = wall[:-8]+encode([(b'PNTS', b'')])+polygon(points)+encode([(b'ENDB', b'')])
         added.append(wall)
     for i, data in enumerate(added, count): streams[f'GameStg/GameItem{i}'] = data
 
@@ -204,14 +190,21 @@ def build():
         else: writer.addEntry(path, data)
     writer.write(output)
     (ROOT/'rl/assets/embedded_script.txt').write_text(script)
-    print(f'Wrote {output}: {len(added)} new parts; original parts and nudge code preserved')
+    print(f'Wrote {output}: {len(added)} new parts')
 
 
-def polygon(points):
-    return encode([(tag, value) for x, y in points for tag, value in
-                   [(b'DPNT', b''), (b'VCEN', floats(x,y)), (b'POSZ', floats(0)),
-                    (b'SMTH', integer(0)), (b'SLNG', integer(0)), (b'ATEX', integer(1)),
-                    (b'TEXC', floats(0)), (b'ENDB', b'')]])
+def with_polygon(data, points, updates):
+    parts = list(records(data, 4))
+    cut = next(i for i, (tag, _) in enumerate(parts) if tag in (b'PNTS', b'DPNT'))
+    # Walls have a PNTS marker; lights begin directly with drag points.
+    fields = data[:4] + encode(parts[:cut] + [(b'ENDB', b'')])
+    prefix = patch(fields, updates)[:-8]
+    parts = [(b'PNTS', b'')] if parts[cut][0] == b'PNTS' else []
+    for x, y in points:
+        parts.extend([(b'DPNT', b''), (b'VCEN', floats(x,y)), (b'POSZ', floats(0)),
+                      (b'SMTH', integer(0)), (b'SLNG', integer(0)), (b'ATEX', integer(1)),
+                      (b'TEXC', floats(0)), (b'ENDB', b'')])
+    return prefix + encode(parts + [(b'ENDB', b'')])
 
 
 if __name__ == '__main__': build()
