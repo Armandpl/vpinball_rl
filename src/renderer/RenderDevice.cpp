@@ -2,6 +2,7 @@
 
 #include "core/stdafx.h"
 #include "renderer/Renderer.h"
+#include "core/RLBridge.h"
 
 #include "parts/Collection.h"
 #include "utils/denormals.h"
@@ -123,6 +124,15 @@ void RenderDevice::tBGFXCallback::screenShot(
 
 void RenderDevice::OnScreenshotCaptured(const char* _filePath, uint32_t _width, uint32_t _height, uint32_t _pitch, bgfx::TextureFormat::Enum _format, const void* _data, uint32_t _size, bool _yflip)
 {
+#if defined(__linux__)
+   if (std::strcmp(_filePath, "vpx-rl-frame") == 0 && RLBridge::Get().Enabled())
+   {
+      RLBridge::Get().Capture(_width, _height, _pitch, _data, _size,
+         _format == bgfx::TextureFormat::BGRA8,
+         _format == bgfx::TextureFormat::BGRA8 || _format == bgfx::TextureFormat::RGBA8, _yflip);
+      return;
+   }
+#endif
    // Note that BGFX has a few bugs regarding screenshots:
    // - DX11 applies an image swizzle to BGRA (like the doc state) but not accounting for the real backbuffer format, hence failing on anything but a RGBA backbuffer (for example HDR)
    // - DX12 does not implement the framebuffer selection and always captures from the base swapchain and returns data on the swapchain format
@@ -886,7 +896,17 @@ void RenderDevice::BGFXDesktopRenderLoop(const bgfx::Init& init)
          BEGIN_SPAN(tagSpan, "BGFX->GPU")
          lastSubmitTimestamp = now;
          g_pplayer->m_renderProfiler->EnterProfileSection(FrameProfiler::PROFILE_RENDER_FLIP);
+#if defined(__linux__)
+         const bool rlCapture = RLBridge::Get().captureRequested.exchange(false);
+         if (rlCapture)
+            bgfx::requestScreenShot(m_outputWnd[0]->GetBackBuffer()->GetCoreFrameBuffer(), "vpx-rl-frame");
+#endif
          Flip();
+#if defined(__linux__)
+         // Drain BGFX's submission pipeline without advancing game logic or preparing another frame.
+         if (rlCapture)
+            bgfx::frame(BGFX_FRAME_FLUSH);
+#endif
          g_pplayer->m_renderProfiler->ExitProfileSection();
          // Split time spent in Flip between GPU submission and time spent in GPU present
          if (!(syncMode == VideoSyncMode::VSM_FRAME_PACING && waitableSwapchain))

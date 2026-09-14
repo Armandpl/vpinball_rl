@@ -125,6 +125,9 @@ private:
 #ifdef ENABLE_BGFX
    bool CallbackSteppedGameLoop();
    void MultithreadedGameLoop();
+#if defined(__linux__)
+   void RLGameLoop();
+#endif
 #endif
    void FramePacingGameLoop();
    void GPUQueueStuffingGameLoop();

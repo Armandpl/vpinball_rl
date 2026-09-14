@@ -310,7 +310,7 @@ void PhysicsEngine::StartPhysics()
 #endif
 }
 
-void PhysicsEngine::UpdatePhysics(uint64_t targetTimeUs)
+void PhysicsEngine::UpdatePhysics(uint64_t targetTimeUs, bool exact)
 {
    if (!g_pplayer) //!! meh, we have a race condition somewhere where we delete g_pplayer while still in use (e.g. if we have a script compile error and cancel the table start)
       return;
@@ -332,7 +332,7 @@ void PhysicsEngine::UpdatePhysics(uint64_t targetTimeUs)
 
    // When paused or after debugging, shift whole game forward in time
    // TODO not sure why we would need noTimeCorrect, as pause should already have shifted the timings
-   if (!g_pplayer->IsPlaying() || g_pplayer->m_noTimeCorrect)
+   if (!exact && (!g_pplayer->IsPlaying() || g_pplayer->m_noTimeCorrect))
    {
       const uint64_t curPhysicsFrameTime = m_startTime_usec + (uint64_t)(g_pplayer->m_time_sec * 1000000.0);
       if (initial_time_usec > curPhysicsFrameTime)
@@ -370,10 +370,12 @@ void PhysicsEngine::UpdatePhysics(uint64_t targetTimeUs)
    PLOGD.printf("End Frame");
 #endif
 
-   if (m_nextPhysicsFrameTime < initial_time_usec)
+   if (exact ? m_nextPhysicsFrameTime <= initial_time_usec : m_nextPhysicsFrameTime < initial_time_usec)
       g_pplayer->m_pluginAPI.BroadcastVPXMsg(m_onUpdatePhysicsMsgId, nullptr);
 
-   while (m_nextPhysicsFrameTime < initial_time_usec) // loop here until physics (=simulated) time catches up to current real time, still staying behind real time by up to one physics emulation step
+   // Normal play stays up to one tick behind wall time. Exact stepping includes the
+   // requested boundary and never shifts the time origin or drops catch-up ticks.
+   while (exact ? m_nextPhysicsFrameTime <= initial_time_usec : m_nextPhysicsFrameTime < initial_time_usec)
    {
       g_pplayer->m_timeUpdateTimeStamp = usec();
       g_pplayer->m_time_sec = max(g_pplayer->m_time_sec, (double)(m_curPhysicsFrameTime - m_startTime_usec) / 1000000.0); // First iteration is done before precise time
@@ -419,7 +421,7 @@ void PhysicsEngine::UpdatePhysics(uint64_t targetTimeUs)
       // end DJRobX's crazy code
 
       // Anti hung mechanism
-      if (g_pplayer->m_playMode != Player::PlayMode::CaptureAttract)
+      if (!exact && g_pplayer->m_playMode != Player::PlayMode::CaptureAttract)
       {
          const uint64_t cur_time_usec = usec()
             - delta_frame; //!! one could also do this directly in the while loop condition instead (so that the while loop will really match with the current time), but that leads to some stuttering on some heavy frames
@@ -484,6 +486,8 @@ void PhysicsEngine::UpdatePhysics(uint64_t targetTimeUs)
 
    // The physics is emulated by PHYSICS_STEPTIME, but the overall emulation time is more precise
    g_pplayer->m_time_sec = (double)(initial_time_usec - m_startTime_usec) / 1000000.0;
+   if (exact)
+      g_pplayer->m_time_msec = uint32_t((m_curPhysicsFrameTime - m_startTime_usec) / 1000);
    //g_pplayer->m_time_sec = (double)(max(initial_time_usec, m_curPhysicsFrameTime) - m_startTime_usec) / 1000000.0;
    // g_pplayer->m_time_msec = (uint32_t)((max(initial_time_usec, m_curPhysicsFrameTime) - m_startTime_usec) / 1000); // Not needed since PHYSICS_STEPTIME happens to be 1ms
 

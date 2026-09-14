@@ -11,6 +11,7 @@
 
 #include "core/editablereg.h"
 #include "core/VPApp.h"
+#include "core/RLBridge.h"
 #include "core/VPXPluginAPIImpl.h"
 #include "parts/ball.h"
 #include "parts/flasher.h"
@@ -1807,6 +1808,9 @@ private:
 
 void Player::UpdateGameLogic()
 {
+#if defined(__linux__) && defined(ENABLE_BGFX)
+   if (RLBridge::Get().Enabled()) return; // RLGameLoop owns input and simulation time.
+#endif
    #ifdef MSVC_CONCURRENCY_VIEWER
    //series.write_flag(_T("Sync"));
    span *tagSpan = new span(series, 1, _T("Sync"));
@@ -1896,6 +1900,13 @@ bool Player::CallbackSteppedGameLoop()
 
 void Player::MultithreadedGameLoop()
 {
+#if defined(__linux__)
+   if (RLBridge::Get().Enabled())
+   {
+      RLGameLoop();
+      return;
+   }
+#endif
    while (GetCloseState() == CS_PLAYING || GetCloseState() == CS_USER_INPUT || GetCloseState() == CS_CLOSE_CAPTURE_SCREENSHOT)
    {
       if (!CallbackSteppedGameLoop())
