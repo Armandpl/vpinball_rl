@@ -1,8 +1,8 @@
 # RL pinball: one saved table
 
-The table is **`rl/assets/rl_table.vpx`**, a small mod of VPX's bundled
-`src/assets/strippedTable.vpx`. Its geometry and complete script are saved inside
-the VPX. The client never patches a script or constructs geometry at runtime.
+The table is **`rl/assets/rl_table.vpx`**, generated offline as a small mod of VPX's
+bundled `src/assets/strippedTable.vpx`. Its geometry and complete script are saved
+inside the VPX. The client never patches a script or constructs geometry at runtime.
 
 ## Play
 
@@ -11,6 +11,7 @@ With native dependencies already built (see [upstream build instructions](../mak
 ```bash
 cmake -S . -B build -DRENDERER=BGFX -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j 12
+uv run rl/build_table.py
 
 uv run examples/rl_play.py
 uv run examples/rl_play.py --camera physical
@@ -85,7 +86,8 @@ override. Do not rename it to `rl_table.vbs` beside the table.
 
 ### Offline authoring
 
-The binary is checked in and ready to use. If changing the layout/rules:
+Generated assets are ignored, not checked in. Run this once before using the
+client or tests, and again after changing the layout/rules:
 
 ```bash
 uv run rl/build_table.py
@@ -94,10 +96,11 @@ uv run rl/build_table.py
 This **offline** tool derives the mod from the bundled stripped table, using a
 stock example-table target as an object template. Geometry is in
 `rl/build_table.py`; appended rules are in `rl/five_targets_hooks.vbs`.
-It regenerates both the VPX and script listing and recalculates VPX's legacy
+It generates both the VPX and script listing and recalculates VPX's legacy
 MD2 integrity hash. Its hash implementation is checked against the unmodified
 source table before writing. Authoring dependencies are not runtime dependencies.
-No downloaded tables are used or redistributed.
+No downloaded tables are used or redistributed. Future `vprl` packaging will
+integrate table generation; installation automation is not implemented yet.
 
 ## Python API
 

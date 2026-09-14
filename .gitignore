@@ -36,3 +36,7 @@ VisualPinball.sln
 __pycache__/
 *.py[cod]
 .venv/
+
+# Generated RL table assets
+/rl/assets/rl_table.vpx
+/rl/assets/embedded_script.txt

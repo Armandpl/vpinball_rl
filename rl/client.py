@@ -124,7 +124,7 @@ class Pinball:
                 if write_fd is not None:
                     os.close(write_fd)
         # Byte-for-byte copy isolates settings/caches. No geometry or script patching:
-        # the checked-in VPX already contains our layout and complete rules.
+        # the offline-generated VPX already contains our layout and complete rules.
         table = work / "table.vpx"
         shutil.copyfile(self.table, table)
         ini = work / "VPinballX.ini"
