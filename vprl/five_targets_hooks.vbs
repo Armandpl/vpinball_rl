@@ -3,7 +3,8 @@
 ' slingshots, sound and animations above are deliberately preserved.
 Dim RLScore, RLStarted, RLGameOver, RLActiveTarget, RLLeft, RLRight
 Dim RLLaunchTicks, RLLastHit(5), RLIndicators, RLIndex
-RLScore = 0: RLStarted = False: RLGameOver = False: RLActiveTarget = 1
+Randomize
+RLScore = 0: RLStarted = False: RLGameOver = False: RLActiveTarget = Int(Rnd * 5) + 1
 RLLeft = 0: RLRight = 0: RLLaunchTicks = 1001
 For RLIndex = 1 To 5: RLLastHit(RLIndex) = -1000: Next
 RLIndicators = Array(RLIndicator1, RLIndicator2, RLIndicator3, RLIndicator4, RLIndicator5)
@@ -23,7 +24,8 @@ Sub RLHitTarget(index)
     RLLastHit(index) = GameTime
     If index = RLActiveTarget Then
         RLScore = RLScore + 100
-        RLActiveTarget = (RLActiveTarget Mod 5) + 1
+        ' Uniformly choose one of the other four targets.
+        RLActiveTarget = ((RLActiveTarget - 1 + Int(Rnd * 4) + 1) Mod 5) + 1
         RLUpdateLights
     Else
         RLScore = RLScore + 10
@@ -52,7 +54,7 @@ Sub RLReset
     ' Engine has removed any old ball. Preserve the world and monotonic GameTime;
     ' reset only this simple game's episode state and serve one new ball.
     Dim i
-    RLScore = 0: RLStarted = False: RLGameOver = False: RLActiveTarget = 1
+    RLScore = 0: RLStarted = False: RLGameOver = False: RLActiveTarget = Int(Rnd * 5) + 1
     RLLeft = 0: RLRight = 0: RLLaunchTicks = 1001
     For i = 1 To 5: RLLastHit(i) = GameTime - 1000: Next
     Table1_KeyUp LeftFlipperKey
