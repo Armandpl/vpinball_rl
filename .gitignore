@@ -38,6 +38,7 @@ __pycache__/
 .venv/
 
 # Generated RL table assets
-/rl/assets/rl_table.vpx
-/rl/assets/embedded_script.txt
-/rl/assets/cache/
+/vprl/assets/rl_table.vpx
+/vprl/assets/embedded_script.txt
+/vprl/assets/cache/
+/dist/

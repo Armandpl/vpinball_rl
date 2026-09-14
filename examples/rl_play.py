@@ -2,7 +2,7 @@
 # requires-python = ">=3.10"
 # dependencies = ["numpy>=1.26", "raylib>=6.0.1.0"]
 # ///
-"""Generate the table with `uv run rl/build_table.py`, then run this script."""
+"""Generate the table with `uv run vprl/build_table.py`, then run this script."""
 from pathlib import Path
 import sys
 
@@ -10,7 +10,7 @@ import numpy as np
 import pyray as ray
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from rl import Action, Camera, Pinball
+from vprl import Action, Camera, Pinball
 
 WIDTH, HEIGHT = 1344, 760
 INTRINSICS = np.array([[1141.5, 0, 672], [0, 1141.5, 380], [0, 0, 1]])

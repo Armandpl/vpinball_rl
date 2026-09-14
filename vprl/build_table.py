@@ -2,7 +2,7 @@
 # requires-python = ">=3.10"
 # dependencies = ["olefile>=0.47", "extract-msg>=0.55", "pycryptodome>=3.20"]
 # ///
-"""Generate the five-target table: uv run rl/build_table.py."""
+"""Generate the five-target table: uv run vprl/build_table.py."""
 from pathlib import Path
 import struct
 
@@ -153,7 +153,7 @@ def build():
     key = 'Sub Table1_KeyDown(ByVal keycode)\n'
     if script.count(key) != 1: raise ValueError('Stripped key handler changed')
     script = script.replace(key, key+'    If keycode = PlungerKey And Not RLGameOver Then RLStarted = True\n', 1)
-    script += '\n' + (ROOT/'rl/five_targets_hooks.vbs').read_text()
+    script += '\n' + (ROOT/'vprl/five_targets_hooks.vbs').read_text()
     streams['GameStg/GameData'] = patch(base['GameStg/GameData'],
         {b'SEDT': integer(count+len(added)), b'CODE': script.encode('cp1252')}, offset=0)
     # Color only the playfield's existing material. Keep every physics field
@@ -180,7 +180,7 @@ def build():
         raise ValueError('Expected one playfield material in both material representations')
     streams['GameStg/GameData'] = encode(parts)
     streams['GameStg/MAC'] = table_mac(streams)
-    output = ROOT/'rl/assets/rl_table.vpx'
+    output = ROOT/'vprl/assets/rl_table.vpx'
     output.parent.mkdir(parents=True, exist_ok=True)
     writer = OleWriter()
     with olefile.OleFileIO(base_path) as original: writer.fromOleFile(original)
@@ -189,7 +189,7 @@ def build():
             if data != base[path]: writer.editEntry(path, data=data)
         else: writer.addEntry(path, data)
     writer.write(output)
-    (ROOT/'rl/assets/embedded_script.txt').write_text(script)
+    (ROOT/'vprl/assets/embedded_script.txt').write_text(script)
     print(f'Wrote {output}: {len(added)} new parts')
 
 

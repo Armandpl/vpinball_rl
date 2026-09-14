@@ -11,7 +11,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-ROOT = Path(__file__).resolve().parents[1]
+PACKAGE = Path(__file__).resolve().parent
 
 
 @dataclass(frozen=True)
@@ -42,9 +42,12 @@ class Pinball:
     """
 
     def __init__(self, *, width=640, height=480, physics_ticks=16, camera=None,
-                 engine=ROOT / "build/VPinballX_BGFX", timeout=60.0):
+                 engine=None, timeout=60.0):
+        if engine is None:
+            native = PACKAGE / "native/VPinballX_BGFX"
+            engine = native if native.is_file() else PACKAGE.parent / "build/VPinballX_BGFX"
         self.engine = Path(engine).resolve()
-        table = ROOT / "rl/assets/rl_table.vpx"
+        table = PACKAGE / "assets/rl_table.vpx"
         for path in (self.engine, table):
             if not path.is_file():
                 raise FileNotFoundError(path)
@@ -114,7 +117,7 @@ class Pinball:
                 os.close(write_fd)
         # Isolate table-adjacent settings and caches between instances.
         table = work / "table.vpx"
-        shutil.copyfile(ROOT / "rl/assets/rl_table.vpx", table)
+        shutil.copyfile(PACKAGE / "assets/rl_table.vpx", table)
         ini = work / "VPinballX.ini"
         ini.write_text(f"""[Player]
 GfxBackend = Vulkan
