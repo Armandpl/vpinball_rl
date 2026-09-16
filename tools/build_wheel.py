@@ -63,6 +63,8 @@ def bundle_native(destination):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--version", default="0.1.0", type=Version)
+    parser.add_argument("--big-brave", type=Path,
+                        help="Bundle this locally supplied Big Brave v601 VPX (requires redistribution permission)")
     parser.add_argument("--jobs", type=int, default=min(12, os.cpu_count() or 1))
     args = parser.parse_args()
     if platform.system() != "Linux" or platform.machine() != "x86_64":
@@ -80,6 +82,10 @@ def main():
         "-DCMAKE_BUILD_TYPE=Release", "-DPOST_BUILD_COPY_EXT_LIBS=ON")
     run("cmake", "--build", "build", "--target", "vpinball", "-j", str(args.jobs), timeout=3600)
     runpy.run_path(str(ROOT / "vprl/build_table.py"), run_name="__main__")
+    big_brave = None
+    if args.big_brave is not None:
+        builder = runpy.run_path(str(ROOT / "vprl/build_big_brave.py"))
+        big_brave = builder["build"](args.big_brave.resolve())
     output = ROOT / "dist"
     output.mkdir(exist_ok=True)
     tag = "py3-none-linux_x86_64"  # Deliberately not a manylinux portability claim.
@@ -88,10 +94,12 @@ def main():
         stage = Path(work)
         package = stage / "vprl"
         package.mkdir()
-        for filename in ("__init__.py", "client.py", "camera.py"):
+        for filename in ("__init__.py", "client.py", "camera.py", "tables.json"):
             shutil.copy2(ROOT / "vprl" / filename, package / filename)
         (package / "assets").mkdir()
         shutil.copy2(ROOT / "vprl/assets/rl_table.vpx", package / "assets/rl_table.vpx")
+        if big_brave is not None:
+            shutil.copy2(big_brave, package / "assets/big_brave.vpx")
         bundle_native(package / "native")
         metadata = stage / f"{name}.dist-info"
         metadata.mkdir()

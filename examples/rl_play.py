@@ -3,6 +3,7 @@
 # dependencies = ["numpy>=1.26", "raylib>=6.0.1.0"]
 # ///
 """Generate the table with `uv run vprl/build_table.py`, then run this script."""
+import argparse
 from pathlib import Path
 import sys
 
@@ -26,11 +27,14 @@ EXTRINSICS = np.array([
 
 
 def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--table", choices=("rl_table", "big_brave"), default="rl_table")
+    args = parser.parse_args()
     ray.init_window(HEIGHT, WIDTH, "VPX RL")
     ray.set_target_fps(60)
     texture = None
     try:
-        with Pinball(width=WIDTH, height=HEIGHT,
+        with Pinball(table=args.table, width=WIDTH, height=HEIGHT,
                      camera=Camera(INTRINSICS, EXTRINSICS)) as pinball:
             obs = pinball.step(physics_ticks=0)
             # Only the display rotates; API frames retain raw sensor orientation.

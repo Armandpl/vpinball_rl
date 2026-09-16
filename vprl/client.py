@@ -8,6 +8,7 @@ import subprocess
 import tempfile
 import time
 from dataclasses import dataclass
+from concurrent.futures import ThreadPoolExecutor
 
 import numpy as np
 
@@ -26,29 +27,24 @@ class Observation:
     ticks: int
     score: int
     game_over: bool
-    started: bool
-    balls_left: int
-    launch_pending: bool
-    active_target: int  # Saved table: 1..5, left to right.
 
 
-class Pinball:
-    """One engine process. step holds the action for physics_ticks fixed 1ms ticks.
-
-    The table launches automatically; actions control only the two flippers.
-    reset starts a new game in the same process; it is not a full physics snapshot.
-    The engine uses private Xvfb; Python alone displays returned frames.
-    Instances must not be shared between threads.
-    """
+class _Engine:
+    """Private single-process transport; owned by one thread at a time."""
 
     def __init__(self, *, width=640, height=480, physics_ticks=16, camera=None,
-                 engine=None, timeout=60.0):
+                 engine=None, timeout=60.0, table="rl_table"):
+        tables = json.loads((PACKAGE / "tables.json").read_text())
+        if table not in tables:
+            raise ValueError(f"Unknown table {table!r}; choose from {', '.join(tables)}")
+        self.table_info = tables[table]
+        self.table = table
+        self._table_path = PACKAGE / "assets" / self.table_info["asset"]
         if engine is None:
             native = PACKAGE / "native/VPinballX_BGFX"
             engine = native if native.is_file() else PACKAGE.parent / "build/VPinballX_BGFX"
         self.engine = Path(engine).resolve()
-        table = PACKAGE / "assets/rl_table.vpx"
-        for path in (self.engine, table):
+        for path in (self.engine, self._table_path):
             if not path.is_file():
                 raise FileNotFoundError(path)
         if not (type(width) is int and type(height) is int and 64 <= width <= 4096 and 64 <= height <= 4096):
@@ -117,7 +113,7 @@ class Pinball:
                 os.close(write_fd)
         # Isolate table-adjacent settings and caches between instances.
         table = work / "table.vpx"
-        shutil.copyfile(PACKAGE / "assets/rl_table.vpx", table)
+        shutil.copyfile(self._table_path, table)
         ini = work / "VPinballX.ini"
         ini.write_text(f"""[Player]
 GfxBackend = Vulkan
@@ -185,11 +181,7 @@ ForceMotionBlurOff = 1
         return Observation(frame=frame, ticks=header["ticks"], **header["state"])
 
     def reset(self):
-        """Reset game state and serve a fresh ball, retaining engine and renderer.
-
-        Works mid-episode too. Returns a frame at episode tick zero; native timer
-        time remains monotonic. A closed client cannot be reset/restarted.
-        """
+        """Initialize a freshly launched engine, never reuse episode state."""
         if self._sock is None:
             raise RuntimeError("Client is closed")
         self._sock.sendall(b"reset\n")
@@ -217,6 +209,102 @@ ForceMotionBlurOff = 1
         if self._tmp is not None:
             self._tmp.cleanup()
         self._proc = self._xvfb = self._sock = self._stream = self._log = self._tmp = None
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_):
+        self.close()
+
+
+class Pinball:
+    """Two-engine pool, using fresh processes for every table's episodes.
+
+    Construction warms both engines. reset swaps to the prepared engine and
+    rebuilds the retired one asynchronously. Short episodes may exhaust the
+    spare and make reset wait. Instances must not be shared between threads.
+    """
+
+    def __init__(self, *, width=640, height=480, physics_ticks=16, camera=None,
+                 engine=None, timeout=60.0, table="rl_table"):
+        self._options = dict(width=width, height=height, physics_ticks=physics_ticks,
+                             camera=camera, engine=engine, timeout=timeout, table=table)
+        self.physics_ticks = physics_ticks
+        self._active = None
+        self._spare = None
+        self._initial = None
+        self._closed = False
+        self._worker = ThreadPoolExecutor(max_workers=1, thread_name_prefix="vprl-spare")
+        try:
+            self._active, self._initial = self._prepare()
+            self._spare = self._worker.submit(self._prepare)
+            # Pay the two-engine warmup once, not on the first episode boundary.
+            self._spare.result()
+            for name in ("width", "height", "timeout", "table", "table_info", "engine"):
+                setattr(self, name, getattr(self._active, name))
+        except BaseException:
+            self.close()
+            raise
+
+    def _prepare(self, retired=None):
+        if retired is not None:
+            retired.close()
+        engine = _Engine(**self._options)
+        try:
+            return engine, engine.reset()
+        except BaseException:
+            engine.close()
+            raise
+
+    @property
+    def engine_info(self):
+        return self._active.engine_info
+
+    @property
+    def log_path(self):
+        return self._active.log_path
+
+    def step(self, action=Action(), *, physics_ticks=None):
+        if self._closed:
+            raise RuntimeError("Client is closed")
+        count = self.physics_ticks if physics_ticks is None else physics_ticks
+        obs = self._active.step(action, physics_ticks=count)
+        self._initial = None
+        return obs
+
+    def reset(self):
+        """Return a fresh tick-zero episode, waiting only if the spare is unready."""
+        if self._closed:
+            raise RuntimeError("Client is closed")
+        if self._initial is not None:
+            obs, self._initial = self._initial, None
+            return obs
+        # Leave the active engine owned here until preparation succeeds.
+        ready, obs = self._spare.result()
+        retired, self._active = self._active, ready
+        self._spare = self._worker.submit(self._prepare, retired)
+        return obs
+
+    def close(self):
+        if self._closed:
+            return
+        self._closed = True
+        try:
+            if self._active is not None:
+                self._active.close()
+        finally:
+            # Never abandon a startup thread: it may still own a live process.
+            try:
+                if self._spare is not None:
+                    try:
+                        spare, _ = self._spare.result()
+                    except BaseException:
+                        pass  # Startup errors surface in construction/reset.
+                    else:
+                        spare.close()
+            finally:
+                self._worker.shutdown(wait=True)
+                self._active = self._spare = self._initial = None
 
     def __enter__(self):
         return self

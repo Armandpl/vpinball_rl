@@ -36,6 +36,39 @@ with Pinball(width=640, height=480) as game:
             obs = game.reset()
 ```
 
+## Big Brave (optional bundle)
+
+Instrument the locally supplied **Big Brave (Maresa 1974) v601.vpx** by JPSalas:
+
+```sh
+uv run vprl/build_big_brave.py "Big Brave (Maresa 1974) v601.vpx"
+uv run examples/rl_play.py --table big_brave
+uv run tools/build_wheel.py --version 0.1.0 --big-brave "Big Brave (Maresa 1974) v601.vpx"
+```
+
+The last command bundles both tables. Without `--big-brave`, the wheel contains
+only the simple table (no download is performed). Select with
+`Pinball(table="big_brave")` or `Pinball(table="rl_table")` (default).
+The selected table's metadata is available as `game.table_info`.
+
+Big Brave reports the original single-player score and game-over flag directly
+from VBScript, including end-of-ball bonus scoring. Every ball is automatically
+plunged. Observations contain only `frame`, `ticks`, `score`, and `game_over`.
+Call `reset()` before the first action.
+Both tables use the same two-engine pool. Construction prepares two fresh
+engines; `reset()` swaps to the ready engine and replaces the retired engine in
+a background thread. This clears all pending state, even on mid-game resets.
+The ready engine stays at tick zero until stepped. Expect roughly twice the
+RAM/VRAM and a longer initial startup. If episodes finish before replacement
+startup completes, reset waits for the spare; background startup can also
+compete with stepping for GPU resources. `close()` waits for pending startup
+and cleans up both engines.
+
+Credit: **JPSalas**, Big Brave 6.0.1,
+[original download and discussion](https://www.vpforums.org/index.php?app=downloads&showfile=15045&st=0#comment_29527).
+
+## Camera and runtime
+
 `Camera(INTRINSICS, EXTRINSICS)` works as in `examples/rl_play.py`, including
 automatic intrinsics scaling. For a desktop viewer, also install `raylib` (or the
 wheel's `viewer` extra). Training does not depend on raylib or a desktop display.

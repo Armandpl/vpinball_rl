@@ -90,8 +90,5 @@ Sub RLTick
 End Sub
 
 Function RLObserve
-    Dim remaining
-    remaining = 1
-    If RLGameOver Then remaining = 0
-    RLObserve = "{""score"":" & CStr(RLScore) & ",""game_over"":" & LCase(CStr(RLGameOver)) & ",""started"":" & LCase(CStr(RLStarted)) & ",""balls_left"":" & CStr(remaining) & ",""launch_pending"":" & LCase(CStr(RLLaunchTicks > 0)) & ",""active_target"":" & CStr(RLActiveTarget) & "}"
+    RLObserve = "{""score"":" & CStr(RLScore) & ",""game_over"":" & LCase(CStr(RLGameOver)) & "}"
 End Function
