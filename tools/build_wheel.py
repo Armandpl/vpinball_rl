@@ -78,6 +78,8 @@ def main():
     required = ("SDL3", "SDL3_image", "SDL3_ttf", "freeimage", "hidapi-hidraw", "winevbs", "bgfx")
     if not all((LIBS / f"lib{name}.so").is_file() for name in required):
         run("bash", "platforms/linux-x64/external.sh", timeout=7200)
+    # Existing libraries may predate UUID selection; validate the BGFX patch cache too.
+    run("bash", "tools/build_bgfx.sh", str(args.jobs), timeout=3600)
     run("cmake", "-S", ".", "-B", "build", "-DRENDERER=BGFX",
         "-DCMAKE_BUILD_TYPE=Release", "-DPOST_BUILD_COPY_EXT_LIBS=ON")
     run("cmake", "--build", "build", "--target", "vpinball", "-j", str(args.jobs), timeout=3600)

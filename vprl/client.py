@@ -74,6 +74,8 @@ class _Engine:
         self.log_path = work / "engine.log"
         self._log = self.log_path.open("wb")
         env = os.environ.copy()
+        # Only BGFX in this engine process may report the selected device.
+        env.pop("VPX_SELECTED_GPU_UUID", None)
         for key in ("XDG_DATA_HOME", "XDG_CONFIG_HOME", "XDG_CACHE_HOME", "XDG_RUNTIME_DIR"):
             path = work / key.lower()
             path.mkdir(mode=0o700)
@@ -142,6 +144,12 @@ ForceMotionBlurOff = 1
         self.engine_info = hello
         if hello.get("protocol") != 3 or hello.get("physics_tick_us") != 1000:
             raise RuntimeError(f"Unsupported engine protocol: {hello}")
+        requested_gpu = env.get("VPX_GPU_UUID")
+        if requested_gpu is not None:
+            expected = requested_gpu.lower().removeprefix("gpu-")
+            if hello.get("renderer") != "Vulkan" or hello.get("gpu_uuid") != expected:
+                raise RuntimeError(f"Engine GPU mismatch: requested {expected}, got {hello}. "
+                                   "Rebuild the engine and BGFX with UUID selection support.")
 
     def _header(self):
         try:

@@ -67,6 +67,39 @@ and cleans up both engines.
 Credit: **JPSalas**, Big Brave 6.0.1,
 [original download and discussion](https://www.vpforums.org/index.php?app=downloads&showfile=15045&st=0#comment_29527).
 
+## Selecting a Vulkan GPU
+
+Set `VPX_GPU_UUID` before constructing `Pinball`, using the assigned CUDA device's
+UUID (canonical UUID, optionally prefixed with `GPU-`). For example, in a worker
+whose `CUDA_VISIBLE_DEVICES` already isolates its training GPU:
+
+```python
+import os
+import torch
+os.environ["VPX_GPU_UUID"] = str(torch.cuda.get_device_properties(0).uuid)
+```
+
+The local BGFX patch enumerates all Vulkan devices (upstream capped enumeration
+at four), matches `VkPhysicalDeviceIDProperties.deviceUUID`, and exits on malformed
+or unavailable UUIDs instead of falling back. The engine reports the selected UUID
+in `game.engine_info["gpu_uuid"]`; the client verifies it against the request,
+including for spare engines. No Mesa selection layer or `vulkaninfo` is needed.
+Vulkan-capable NVIDIA drivers are still required; MIG is not supported.
+
+`tools/build_wheel.py` automatically rebuilds BGFX when the selector patch changes,
+even if third-party libraries already exist. To build only the patched library:
+
+```sh
+bash tools/build_bgfx.sh 8
+```
+
+The patch and helper are `tools/bgfx_gpu_uuid.patch` and `tools/bgfx_gpu_uuid.h`,
+applied to the BGFX revision pinned in `platforms/config.sh`. Publish a **new wheel
+version** and update the training project's wheel URL/lockfile before enabling
+UUID selection there. An older engine/wheel is rejected rather than silently
+ignoring the assignment. Test on a multi-GPU node, including local GPU 7, before
+launching the full sweep.
+
 ## Camera and runtime
 
 `Camera(INTRINSICS, EXTRINSICS)` works as in `examples/rl_play.py`, including
