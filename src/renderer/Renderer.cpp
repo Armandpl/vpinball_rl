@@ -1,6 +1,7 @@
 // license:GPLv3+
 
 #include "core/stdafx.h"
+#include "core/RLBridge.h"
 #include "Renderer.h"
 
 #include "core/VPApp.h"
@@ -976,6 +977,30 @@ void Renderer::InitLayout(const float xpixoff, const float ypixoff)
    if (m_stereo3D == STEREO_VR)
       return;
    TRACE_FUNCTION();
+#if defined(__linux__) && defined(ENABLE_BGFX)
+   const auto& rl = RLBridge::Get();
+   if (rl.hasCamera)
+   {
+      Matrix3D view, proj;
+      for (int i = 0; i < 16; ++i)
+      {
+         view.m[i / 4][i % 4] = rl.cameraMatrices[i];
+         proj.m[i / 4][i % 4] = rl.cameraMatrices[i + 16];
+      }
+      // Anchor to the native, unscaled playfield; do not hard-code a table length.
+      const float anchorY = rl.cameraAtFlipperEnd ? m_table->m_bottom : 0.5f * (m_table->m_top + m_table->m_bottom);
+      view = Matrix3D::MatrixTranslate(-0.5f * (m_table->m_left + m_table->m_right), -anchorY, 0.f) * view;
+      proj = proj * Matrix3D::MatrixTranslate(xpixoff / GetDisplayWidth(), ypixoff / GetDisplayHeight(), 0.f);
+      m_mvp.SetModel(Matrix3D::MatrixIdentity());
+      for (unsigned eye = 0; eye < 2; ++eye)
+      {
+         m_mvp.SetView(eye, view);
+         m_mvp.SetProj(eye, proj);
+      }
+      m_initialMVP = m_mvp;
+      return;
+   }
+#endif
    const ViewSetup& viewSetup = m_table->GetViewSetup();
    #if defined(ENABLE_OPENGL) || defined(ENABLE_BGFX)
    const bool stereo = m_stereo3Denabled && (m_stereo3D != STEREO_OFF) && (m_stereo3D != STEREO_VR);

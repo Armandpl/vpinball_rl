@@ -1,0 +1,17 @@
+{
+  "rl_table": {
+    "title": "Five-target RL table",
+    "asset": "rl_table.vpx",
+    "reset": "pool"
+  },
+  "big_brave": {
+    "title": "Big Brave (Maresa 1974)",
+    "version": "6.0.1",
+    "author": "JPSalas",
+    "source_url": "https://www.vpforums.org/index.php?app=downloads&showfile=15045&st=0#comment_29527",
+    "asset": "big_brave.vpx",
+    "reset": "pool",
+    "modifications": "RL state observation, flipper control, automatic start and plunger; original game rules and assets preserved.",
+    "redistribution": "Original table is not covered by the engine license. Verify author permission and source terms before redistribution."
+  }
+}

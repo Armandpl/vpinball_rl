@@ -1,6 +1,7 @@
 // license:GPLv3+
 
 #include "core/stdafx.h"
+#include "core/RLBridge.h"
 #include "ball.h"
 
 #include "core/VPApp.h"
@@ -462,7 +463,11 @@ void Ball::Render(const unsigned int renderMask)
          // - the time elapsed since last physic,
          // - the time between now and when it will be presented,
          // - the time the display will need to actually show it (1ms is just a magic number here)
-         if (g_pplayer->IsPlaying())
+         if (g_pplayer->IsPlaying()
+#if defined(__linux__) && defined(ENABLE_BGFX)
+            && !RLBridge::Get().Enabled() // Observations must show the stepped state, not a wall-clock prediction.
+#endif
+            )
          {
             const float delay = (float)(static_cast<double>(usec() - g_pplayer->m_timeUpdateTimeStamp) / 1000000.) + rd->GetPredictedDisplayDelay() + 0.001f;
             posl += delay * m_hitBall.m_d.m_vel;

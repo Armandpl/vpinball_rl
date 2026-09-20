@@ -1,0 +1,134 @@
+--- a/src/renderer_vk.cpp
++++ b/src/renderer_vk.cpp
+@@ -9,6 +9,7 @@
+ #	include <bx/pixelformat.h>
+ #	include "renderer_vk.h"
+ #	include "video_vk.h"
++#	include "bgfx_gpu_uuid.h"
+ 
+ #if BX_PLATFORM_OSX
+ #	import <Cocoa/Cocoa.h>
+@@ -1542,11 +1543,14 @@
+ 					goto error;
+ 				}
+ 
+-				VkPhysicalDevice physicalDevices[4];
+-				numPhysicalDevices = bx::min<uint32_t>(numPhysicalDevices, BX_COUNTOF(physicalDevices) );
++				if (numPhysicalDevices == 0)
++				{
++					vpx_gpu::fail("Vulkan exposes no physical devices");
++				}
++				std::vector<VkPhysicalDevice> physicalDevices(numPhysicalDevices);
+ 				result = vkEnumeratePhysicalDevices(m_instance
+ 					, &numPhysicalDevices
+-					, physicalDevices
++					, physicalDevices.data()
+ 					);
+ 
+ 				if (VK_SUCCESS != result)
+@@ -1555,7 +1559,13 @@
+ 					goto error;
+ 				}
+ 
+-				Extension physicalDeviceExtensions[4][Extension::Count];
++				std::vector<std::array<Extension, Extension::Count>> physicalDeviceExtensions(numPhysicalDevices);
++				std::vector<vpx_gpu::UUID> deviceUUIDs(numPhysicalDevices);
++				const char* requestedUUID = std::getenv("VPX_GPU_UUID");
++				if (requestedUUID && !vkGetPhysicalDeviceProperties2KHR)
++				{
++					vpx_gpu::fail("Vulkan device UUID queries are unavailable");
++				}
+ 
+ 				uint32_t physicalDeviceIdx         = UINT32_MAX;
+ 				uint32_t fallbackPhysicalDeviceIdx = UINT32_MAX;
+@@ -1564,11 +1574,14 @@
+ 				{
+ 					VkPhysicalDeviceProperties pdp;
+ 					if (vkGetPhysicalDeviceProperties2KHR) {
+-						VkPhysicalDeviceProperties2KHR pdp2;
++						VkPhysicalDeviceIDProperties ids{};
++						ids.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ID_PROPERTIES;
++						VkPhysicalDeviceProperties2KHR pdp2{};
+ 						pdp2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
+-						pdp2.pNext = NULL;
++						pdp2.pNext = &ids;
+ 						vkGetPhysicalDeviceProperties2KHR(physicalDevices[ii], &pdp2);
+ 						pdp = pdp2.properties;
++						std::memcpy(deviceUUIDs[ii].data(), ids.deviceUUID, VK_UUID_SIZE);
+ 					} else
+ 					{
+ 						vkGetPhysicalDeviceProperties(physicalDevices[ii], &pdp);
+@@ -1592,9 +1605,13 @@
+ 						pdp.vendorID = BGFX_PCI_ID_SOFTWARE_RASTERIZER;
+ 					}
+ 
+-					g_caps.gpu[ii].vendorId = uint16_t(pdp.vendorID);
+-					g_caps.gpu[ii].deviceId = uint16_t(pdp.deviceID);
+-					++g_caps.numGPUs;
++					// The public caps array holds only four entries; selection must inspect all GPUs.
++					if (ii < BX_COUNTOF(g_caps.gpu))
++					{
++						g_caps.gpu[ii].vendorId = uint16_t(pdp.vendorID);
++						g_caps.gpu[ii].deviceId = uint16_t(pdp.deviceID);
++						++g_caps.numGPUs;
++					}
+ 
+ 					if ( (BGFX_PCI_ID_NONE != g_caps.vendorId ||            0 != g_caps.deviceId)
+ 					&&   (BGFX_PCI_ID_NONE == g_caps.vendorId || pdp.vendorID == g_caps.vendorId)
+@@ -1646,7 +1663,7 @@
+ 					}
+ 
+ 					bx::memCopy(&physicalDeviceExtensions[ii][0], &s_extension[0], sizeof(s_extension) );
+-					dumpExtensions(physicalDevices[ii], physicalDeviceExtensions[ii]);
++					dumpExtensions(physicalDevices[ii], physicalDeviceExtensions[ii].data());
+ 				}
+ 
+ 				if (UINT32_MAX == physicalDeviceIdx)
+@@ -1657,6 +1674,19 @@
+ 						;
+ 				}
+ 
++				if (requestedUUID)
++				{
++					physicalDeviceIdx = vpx_gpu::select(requestedUUID, deviceUUIDs);
++				}
++				char selectedUUID[37];
++				vpx_gpu::format(deviceUUIDs[physicalDeviceIdx], selectedUUID);
++#if BX_PLATFORM_LINUX
++				if (0 != setenv("VPX_SELECTED_GPU_UUID", selectedUUID, 1))
++				{
++					vpx_gpu::fail("could not report selected GPU UUID");
++				}
++#endif
++				std::fprintf(stderr, "VPX Vulkan GPU %u UUID=%s\n", physicalDeviceIdx, selectedUUID);
+ 				m_physicalDevice = physicalDevices[physicalDeviceIdx];
+ 
+ 				bx::memCopy(&s_extension[0], &physicalDeviceExtensions[physicalDeviceIdx][0], sizeof(s_extension) );
+@@ -2197,7 +2227,7 @@
+ 
+ 				if (VK_SUCCESS != result)
+ 				{
+-					BX_TRACE("Init error: vkCreateDevice failed %d: %s.", result, getName(result) );
++					std::fprintf(stderr, "VPX Vulkan: vkCreateDevice failed %d: %s.\n", result, getName(result) );
+ 					goto error;
+ 				}
+ 			}
+@@ -2284,7 +2314,7 @@
+ 
+ 					if (VK_SUCCESS != result)
+ 					{
+-						BX_TRACE("Init error: creating swap chain failed %d: %s.", result, getName(result) );
++						std::fprintf(stderr, "VPX Vulkan: creating swap chain failed %d: %s.\n", result, getName(result) );
+ 						goto error;
+ 					}
+ 
+@@ -2426,6 +2456,9 @@
+ 			return true;
+ 
+ 		error:
++			// Release builds compile out BX_TRACE; retain the initialization failure.
++			std::fprintf(stderr, "VPX Vulkan initialization failed: state=%d result=%d (%s)\n",
++				int(errorState), int(result), getName(result));
+ 			BX_TRACE("errorState %d", errorState);
+ 			switch (errorState)
+ 			{

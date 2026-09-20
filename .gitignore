@@ -31,3 +31,15 @@ VisualPinball.sln
 /.build
 
 /.cache/
+
+# Python RL client
+__pycache__/
+*.py[cod]
+.venv/
+
+# Generated RL table assets
+/vprl/assets/rl_table.vpx
+/vprl/assets/big_brave.vpx
+/vprl/assets/embedded_script.txt
+/vprl/assets/cache/
+/dist/
