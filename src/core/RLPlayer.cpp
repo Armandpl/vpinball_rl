@@ -40,7 +40,8 @@ void Player::RLGameLoop()
          SetCloseState(CS_CLOSE_APP); return;
       }
    DISPPARAMS noArgs = { nullptr, nullptr, 0, 0 };
-   const char* gpuUUID = std::getenv("VPX_SELECTED_GPU_UUID");
+   const char* gpuUUID = bgfx::getRendererType() == bgfx::RendererType::Vulkan
+      ? std::getenv("VPX_SELECTED_GPU_UUID") : nullptr;
    bridge.Send(std::format("{{\"protocol\":3,\"physics_tick_us\":{},\"renderer\":\"{}\",\"gpu_vendor_id\":{},\"gpu_device_id\":{},\"gpu_uuid\":\"{}\"}}\n",
       PHYSICS_STEPTIME, bgfx::getRendererName(bgfx::getRendererType()), bgfx::getCaps()->vendorId, bgfx::getCaps()->deviceId,
       gpuUUID ? gpuUUID : ""));

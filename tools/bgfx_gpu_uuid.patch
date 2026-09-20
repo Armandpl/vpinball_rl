@@ -104,3 +104,31 @@
  				m_physicalDevice = physicalDevices[physicalDeviceIdx];
  
  				bx::memCopy(&s_extension[0], &physicalDeviceExtensions[physicalDeviceIdx][0], sizeof(s_extension) );
+@@ -2197,7 +2227,7 @@
+ 
+ 				if (VK_SUCCESS != result)
+ 				{
+-					BX_TRACE("Init error: vkCreateDevice failed %d: %s.", result, getName(result) );
++					std::fprintf(stderr, "VPX Vulkan: vkCreateDevice failed %d: %s.\n", result, getName(result) );
+ 					goto error;
+ 				}
+ 			}
+@@ -2284,7 +2314,7 @@
+ 
+ 					if (VK_SUCCESS != result)
+ 					{
+-						BX_TRACE("Init error: creating swap chain failed %d: %s.", result, getName(result) );
++						std::fprintf(stderr, "VPX Vulkan: creating swap chain failed %d: %s.\n", result, getName(result) );
+ 						goto error;
+ 					}
+ 
+@@ -2426,6 +2456,9 @@
+ 			return true;
+ 
+ 		error:
++			// Release builds compile out BX_TRACE; retain the initialization failure.
++			std::fprintf(stderr, "VPX Vulkan initialization failed: state=%d result=%d (%s)\n",
++				int(errorState), int(result), getName(result));
+ 			BX_TRACE("errorState %d", errorState);
+ 			switch (errorState)
+ 			{

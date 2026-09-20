@@ -148,8 +148,12 @@ ForceMotionBlurOff = 1
         if requested_gpu is not None:
             expected = requested_gpu.lower().removeprefix("gpu-")
             if hello.get("renderer") != "Vulkan" or hello.get("gpu_uuid") != expected:
+                with self.log_path.open("rb") as log:
+                    log.seek(max(0, self.log_path.stat().st_size - 16000))
+                    tail = log.read().decode(errors="replace")
                 raise RuntimeError(f"Engine GPU mismatch: requested {expected}, got {hello}. "
-                                   "Rebuild the engine and BGFX with UUID selection support.")
+                                   "Vulkan may have failed and fallen back, or the engine lacks UUID support. "
+                                   f"Engine log:\n{tail}")
 
     def _header(self):
         try:

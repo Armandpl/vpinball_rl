@@ -341,6 +341,16 @@ colorFormat RenderDevice::BGFXtoVPXTextureFormat(bgfx::TextureFormat::Enum forma
 
 static const string& bgfxRendererName(const bgfx::RendererType::Enum type);
 
+static bool IsRLOffscreen()
+{
+#if defined(__linux__)
+   const char* setting = std::getenv("VPX_RL_OFFSCREEN");
+   return RLBridge::Get().Enabled() && (!setting || std::strcmp(setting, "0") != 0);
+#else
+   return false;
+#endif
+}
+
 void RenderDevice::RenderThread(RenderDevice* rd, bgfx::Init init)
 {
    SetThreadName("RenderThread"s);
@@ -420,6 +430,18 @@ void RenderDevice::RenderThread(RenderDevice* rd, bgfx::Init init)
    // to do so, ending up with this thread being the only BGFX thread. It needs to be called before each bgfx::init
    // This is also required for OpenXR which needs all the GPU submission calls to be performed after WaitFrame (sync) and between Begin/EndFrame
 
+   // RL needs pixels, not presentation. Secondary GPUs may not support presenting
+   // to the X server's window; avoid WSI entirely and render to a texture instead.
+   const bool rlOffscreen = IsRLOffscreen();
+   const uint32_t rlWidth = init.resolution.width, rlHeight = init.resolution.height;
+   if (rlOffscreen)
+   {
+      init.resolution.width = init.resolution.height = 0; // BGFX requires 0x0 for a headless backbuffer.
+      init.platformData.nwh = nullptr;
+      init.platformData.ndt = nullptr;
+      init.fallback = false;
+   }
+
    // We first run in headless mode to initialize the underlying backend and try to gather information to select a supported backbuffer format
    // This is needed to select a safe backbuffer format but will fail under OpenGL or Linux. For these, we start using BGRA8 which seems to be supported everywhere and adjust afterward
    init.resolution.formatColor = bgfx::TextureFormat::BGRA8;
@@ -462,6 +484,12 @@ void RenderDevice::RenderThread(RenderDevice* rd, bgfx::Init init)
    {
       PLOGE << "BGFX initialization failed";
       exit(-1);
+   }
+   if (rlOffscreen)
+   {
+      // These dimensions describe our output texture, not BGFX's absent backbuffer.
+      init.resolution.width = rlWidth;
+      init.resolution.height = rlHeight;
    }
 
    // A specific backend was requested but BGFX created a different one (init.fallback let it fall back to
@@ -516,7 +544,28 @@ void RenderDevice::RenderThread(RenderDevice* rd, bgfx::Init init)
    }
    else
    {
-      RenderTarget* backbuffer = new RenderTarget(rd, SurfaceType::RT_DEFAULT, BGFX_INVALID_HANDLE, BGFX_INVALID_HANDLE, init.resolution.formatColor, BGFX_INVALID_HANDLE,
+      bgfx::TextureHandle color = BGFX_INVALID_HANDLE;
+      bgfx::FrameBufferHandle framebuffer = BGFX_INVALID_HANDLE;
+      if (rlOffscreen)
+      {
+         const uint64_t required = BGFX_CAPS_TEXTURE_BLIT | BGFX_CAPS_TEXTURE_READ_BACK;
+         if ((bgfx::getCaps()->supported & required) != required)
+         {
+            PLOGE << "RL offscreen rendering requires texture blit and readback support";
+            exit(-1);
+         }
+         color = bgfx::createTexture2D(init.resolution.width, init.resolution.height, false, 1,
+            init.resolution.formatColor, BGFX_TEXTURE_RT);
+         if (bgfx::isValid(color))
+            framebuffer = bgfx::createFrameBuffer(1, &color, false);
+         if (!bgfx::isValid(framebuffer))
+         {
+            PLOGE << "Failed to create RL offscreen render target";
+            exit(-1);
+         }
+         fprintf(stderr, "VPX RL: offscreen Vulkan rendering (no window swapchain)\n");
+      }
+      RenderTarget* backbuffer = new RenderTarget(rd, SurfaceType::RT_DEFAULT, framebuffer, color, init.resolution.formatColor, BGFX_INVALID_HANDLE,
          init.resolution.formatDepthStencil, "BackBuffer", init.resolution.width, init.resolution.height, BGFXtoVPXTextureFormat(init.resolution.formatColor));
       rd->m_outputWnd[0]->SetBackBuffer(backbuffer, (init.resolution.reset & BGFX_RESET_HDR10) != 0);
       rd->m_framePending = false; // Request first frame to be prepared as soon as possible
@@ -690,7 +739,23 @@ void RenderDevice::BGFXDesktopRenderLoop(const bgfx::Init& init)
    uint32_t lastGpuFrameNum = 0;
    uint64_t avgGPUFrameLength = 0;
 
-   const bool waitableSwapchain = (bgfx::getCaps()->supported & BGFX_CAPS_WAITABLE_SWAPCHAIN) != 0;
+   const bool rlOffscreen = IsRLOffscreen();
+#if defined(__linux__)
+   bgfx::TextureHandle rlReadback = BGFX_INVALID_HANDLE;
+   vector<uint8_t> rlPixels;
+   if (rlOffscreen)
+   {
+      rlPixels.resize(size_t(init.resolution.width) * init.resolution.height * 4);
+      rlReadback = bgfx::createTexture2D(init.resolution.width, init.resolution.height, false, 1,
+         init.resolution.formatColor, BGFX_TEXTURE_BLIT_DST | BGFX_TEXTURE_READ_BACK);
+      if (!bgfx::isValid(rlReadback))
+      {
+         PLOGE << "Failed to create RL readback texture";
+         exit(-1);
+      }
+   }
+#endif
+   const bool waitableSwapchain = !rlOffscreen && (bgfx::getCaps()->supported & BGFX_CAPS_WAITABLE_SWAPCHAIN) != 0;
    if (waitableSwapchain)
       bgfx::waitForSwapchain();
 
@@ -798,7 +863,7 @@ void RenderDevice::BGFXDesktopRenderLoop(const bgfx::Init& init)
          if (nwh == nullptr)
             continue;
 #endif
-         if (bgfxVSync != needsVSync)
+         if (!rlOffscreen && bgfxVSync != needsVSync)
          {
             bgfxVSync = needsVSync;
             bgfx::reset(m_outputWnd[0]->GetBackBuffer()->GetWidth(), m_outputWnd[0]->GetBackBuffer()->GetHeight(), init.resolution.reset | (bgfxVSync ? BGFX_RESET_VSYNC : BGFX_RESET_NONE),
@@ -856,6 +921,11 @@ void RenderDevice::BGFXDesktopRenderLoop(const bgfx::Init& init)
             const bool isMainSwpachain = wnd == m_outputWnd[0];
             if ((windowWidth != wnd->GetBackBuffer()->GetWidth()) || (windowHeight != wnd->GetBackBuffer()->GetHeight()))
             {
+               if (rlOffscreen)
+               {
+                  PLOGE << "RL offscreen output has a fixed size; window resize is unsupported";
+                  exit(-1);
+               }
                // Request BGFX to process the submitted render frame before reseting / deleting the swapchain it rely on
                Flip();
                if (isMainSwpachain)
@@ -898,13 +968,37 @@ void RenderDevice::BGFXDesktopRenderLoop(const bgfx::Init& init)
          g_pplayer->m_renderProfiler->EnterProfileSection(FrameProfiler::PROFILE_RENDER_FLIP);
 #if defined(__linux__)
          const bool rlCapture = RLBridge::Get().captureRequested.exchange(false);
-         if (rlCapture)
+         uint32_t readbackFrame = 0;
+         if (rlCapture && rlOffscreen)
+         {
+            NextView(); // Blit after the final output pass, not before rendering.
+            bgfx::TextureRegion dst, src;
+            dst.init(rlReadback);
+            src.init(m_outputWnd[0]->GetBackBuffer()->GetColorSampler()->GetCoreTexture(false));
+            bgfx::blit(m_activeViewId, dst, src);
+            readbackFrame = bgfx::read(dst, rlPixels.data());
+         }
+         else if (rlCapture)
             bgfx::requestScreenShot(m_outputWnd[0]->GetBackBuffer()->GetCoreFrameBuffer(), "vpx-rl-frame");
 #endif
          Flip();
 #if defined(__linux__)
-         // Drain BGFX's submission pipeline without advancing game logic or preparing another frame.
-         if (rlCapture)
+         // Drain BGFX only; never advance physics while waiting for readback.
+         if (rlCapture && rlOffscreen)
+         {
+            const uint64_t deadline = usec() + 30000000;
+            while (int32_t(bgfx::frame(BGFX_FRAME_FLUSH) - readbackFrame) < 0)
+               if (usec() > deadline)
+               {
+                  fprintf(stderr, "VPX RL: offscreen readback timeout\n");
+                  exit(-1);
+               }
+            ResetActiveView();
+            RLBridge::Get().Capture(init.resolution.width, init.resolution.height, init.resolution.width * 4,
+               rlPixels.data(), unsigned(rlPixels.size()), init.resolution.formatColor == bgfx::TextureFormat::BGRA8,
+               true, bgfx::getCaps()->originBottomLeft);
+         }
+         else if (rlCapture)
             bgfx::frame(BGFX_FRAME_FLUSH);
 #endif
          g_pplayer->m_renderProfiler->ExitProfileSection();
@@ -1028,6 +1122,10 @@ void RenderDevice::BGFXDesktopRenderLoop(const bgfx::Init& init)
       }
    }
 
+#if defined(__linux__)
+   if (bgfx::isValid(rlReadback))
+      bgfx::destroy(rlReadback);
+#endif
 #if BX_PLATFORM_WINDOWS
    if (m_presentMonProvider)
    {
@@ -1352,7 +1450,8 @@ RenderDevice::RenderDevice(
    }
 
    init.callback = &m_bgfxCallback;
-   init.fallback = true;
+   // A requested Vulkan UUID cannot constrain another renderer's GPU selection.
+   init.fallback = std::getenv("VPX_GPU_UUID") == nullptr;
    init.resolution.width = swapchainWnd->GetPixelWidth();
    init.resolution.height = swapchainWnd->GetPixelHeight();
    init.platformData.context = nullptr;

@@ -86,6 +86,23 @@ in `game.engine_info["gpu_uuid"]`; the client verifies it against the request,
 including for spare engines. No Mesa selection layer or `vulkaninfo` is needed.
 Vulkan-capable NVIDIA drivers are still required; MIG is not supported.
 
+RL now renders **offscreen by default**: BGFX initializes without a window
+swapchain, renders the final image to a BGRA8 texture, and blits/readbacks that
+texture to CPU before replying. This avoids requiring the assigned GPU to present
+to Xvfb (which may only support another GPU). Xvfb remains for SDL/window setup,
+but Vulkan never presents to it. GPU UUID checks and no-fallback behavior remain
+enforced. Set `VPX_RL_OFFSCREEN=0` only to compare with the old swapchain path.
+
+Local native regression (run from this repository with numpy installed):
+
+```sh
+VPRL_GPU_TESTS=1 VPX_GPU_UUID=<gpu-uuid> python -m unittest discover -s tests -p test_rl_offscreen.py
+```
+
+It compares initial offscreen/windowed pixels exactly and exercises stepping and
+pooled resets. The windowed comparison may fail on secondary cluster GPUs—that is
+the presentation limitation the offscreen path avoids.
+
 `tools/build_wheel.py` automatically rebuilds BGFX when the selector patch changes,
 even if third-party libraries already exist. To build only the patched library:
 
